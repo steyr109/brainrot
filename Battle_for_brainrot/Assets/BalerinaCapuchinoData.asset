@@ -1,0 +1,23 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 76e4443b7f6dfea41a3c93d28ae65028, type: 3}
+  m_Name: BalerinaCapuchinoData
+  m_EditorClassIdentifier: 
+  characterName: BalerinaCapuchino
+  animatorController: {fileID: 9100000, guid: b9d99f1e932e7854394de24da8d14de5, type: 2}
+  characterPrefab: {fileID: 8255868933404914648, guid: 4ffa0729fdec65e479c2498d7f7ffa69, type: 3}
+  maxHealth: 100
+  forwardWalkSpeed: 5
+  backwardWalkSpeed: 5
+  horizontalJumpSpeed: 8
+  verticalJumpSpeed: 3
+  gravity: 50
