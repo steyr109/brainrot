@@ -9,12 +9,18 @@ public class MainMenuController : MonoBehaviour
 {
     private const string ArenaModeKey = "BattleForBrainrot.Mode";
     private const string ArenaModeValue = "Sahur";
+    private const string TutorialModeKey = "BattleForBrainrot.TutorialMode";
+    private const string TutorialCompletedKey = "BattleForBrainrot.TutorialCompleted";
     private const string SelectedCharacterKey = "SelectedCharacter";
     private const string RemoteSelectedCharacterKey = "RemoteSelectedCharacter";
     private const string CharacterSelectionMessage = "BrainrotCharacterSelection";
+    private const string CryptaKey = "BattleForBrainrot.Crypta";
     private const string GameModeKey = "BattleForBrainrot.GameMode";
     private const string GameModePve = "PVE";
     private const string GameModePvp = "PVP";
+    private const string InputModeKey = "BattleForBrainrot.InputMode";
+    private const string InputModeKeyboard = "Keyboard";
+    private const string InputModeJoystick = "Joystick";
     private const ushort PvpPort = 7777;
 
     [SerializeField] private GameObject[] menuObjects;
@@ -28,36 +34,28 @@ public class MainMenuController : MonoBehaviour
     private GameObject gameModePanel;
     private GameObject matchmakingPanel;
     private Text gameModeLabel;
+    private Text inputModeLabel;
     private Text matchmakingStatusText;
     private GameObject showcaseSahur;
     private string selectedGameMode = GameModePve;
+    private string selectedInputMode = InputModeKeyboard;
     private string localSelectedCharacter;
     private string remoteSelectedCharacter;
     private bool waitingForPvp;
     private bool characterSelectionMessageRegistered;
 
-    private struct CharacterOption
-    {
-        public string displayName;
-        public string resourceName;
-
-        public CharacterOption(string displayName, string resourceName)
-        {
-            this.displayName = displayName;
-            this.resourceName = resourceName;
-        }
-    }
-
-    private static readonly CharacterOption[] Characters =
-    {
-        new CharacterOption("SAHUR", "Sahur"),
-        new CharacterOption("BALERINA CAPUCHINO", "BalerinaCapuchino")
-    };
-
     private void Awake()
     {
         audioSource = GetComponent<AudioSource>();
         selectedGameMode = PlayerPrefs.GetString(GameModeKey, GameModePve);
+        selectedInputMode = PlayerPrefs.GetString(InputModeKey, InputModeKeyboard);
+
+        if (ShouldStartFirstLaunchTutorial())
+        {
+            StartFirstLaunchTutorial();
+            return;
+        }
+
         PlayerPrefs.DeleteKey(ArenaModeKey);
         PlayerPrefs.DeleteKey(SelectedCharacterKey);
         PlayerPrefs.DeleteKey(RemoteSelectedCharacterKey);
@@ -119,6 +117,23 @@ public class MainMenuController : MonoBehaviour
         PlaySound(selectSound);
     }
 
+    private static bool ShouldStartFirstLaunchTutorial()
+    {
+        return PlayerPrefs.GetInt(TutorialCompletedKey, 0) == 0 &&
+               PlayerPrefs.GetInt(TutorialModeKey, 0) == 0;
+    }
+
+    private static void StartFirstLaunchTutorial()
+    {
+        PlayerPrefs.SetInt(TutorialModeKey, 1);
+        PlayerPrefs.SetString(ArenaModeKey, ArenaModeValue);
+        PlayerPrefs.SetString(GameModeKey, GameModePve);
+        PlayerPrefs.SetString(SelectedCharacterKey, BrainrotCharacterRegistry.Sahur);
+        PlayerPrefs.DeleteKey(RemoteSelectedCharacterKey);
+        PlayerPrefs.Save();
+        SceneManager.LoadScene("3DStage", LoadSceneMode.Single);
+    }
+
     private void HideLegacyMenuObjects()
     {
         if (menuObjects == null)
@@ -143,7 +158,7 @@ public class MainMenuController : MonoBehaviour
         DisableLegacyObject("Background");
         DisableLegacyObject("Play Button");
 
-        foreach (Canvas canvas in FindObjectsOfType<Canvas>())
+        foreach (Canvas canvas in FindObjectsByType<Canvas>(FindObjectsSortMode.None))
         {
             if (canvas == null || canvas.GetComponentInParent<MainMenuController>() != null)
                 continue;
@@ -169,7 +184,7 @@ public class MainMenuController : MonoBehaviour
         menuCanvas.gameObject.AddComponent<GraphicRaycaster>();
 
         CreateTopCurrency(menuCanvas.transform, "ВАЛЮТА 2 0", new Vector2(-430f, -38f));
-        CreateTopCurrency(menuCanvas.transform, "ВАЛЮТА 1 0", new Vector2(-180f, -38f));
+        CreateTopCurrency(menuCanvas.transform, "КРИПТА " + PlayerPrefs.GetInt(CryptaKey, 0), new Vector2(-180f, -38f));
 
         Button charactersButton = CreateMenuButton(menuCanvas.transform, "ПЕРСОНАЖИ", Anchor.BottomLeft, new Vector2(170f, 82f), new Vector2(220f, 78f), 27);
         charactersButton.onClick.AddListener(ShowCharacterSelect);
@@ -184,6 +199,9 @@ public class MainMenuController : MonoBehaviour
         settingsButton.onClick.AddListener(() => PlaySound(pressSound));
 
         gameModeLabel = CreateText(menuCanvas.transform, "MODE: " + selectedGameMode, Anchor.Top, new Vector2(0f, -36f), new Vector2(260f, 36f), 24, TextAnchor.MiddleCenter, Color.red);
+        Button inputModeButton = CreateMenuButton(menuCanvas.transform, "УПРАВЛЕНИЕ", Anchor.Top, new Vector2(0f, -86f), new Vector2(250f, 46f), 19);
+        inputModeButton.onClick.AddListener(ToggleInputMode);
+        inputModeLabel = CreateText(menuCanvas.transform, GetInputModeLabel(), Anchor.Top, new Vector2(0f, -126f), new Vector2(300f, 30f), 19, TextAnchor.MiddleCenter, Color.red);
     }
 
     private void SpawnShowcaseSahur()
@@ -277,6 +295,22 @@ public class MainMenuController : MonoBehaviour
             gameModePanel.SetActive(false);
     }
 
+    private void ToggleInputMode()
+    {
+        PlaySound(pressSound);
+        selectedInputMode = selectedInputMode == InputModeKeyboard ? InputModeJoystick : InputModeKeyboard;
+        PlayerPrefs.SetString(InputModeKey, selectedInputMode);
+        PlayerPrefs.Save();
+
+        if (inputModeLabel != null)
+            inputModeLabel.text = GetInputModeLabel();
+    }
+
+    private string GetInputModeLabel()
+    {
+        return selectedInputMode == InputModeKeyboard ? "КЛАВИАТУРА" : "ДЖОЙСТИК";
+    }
+
     private void ShowCharacterSelect()
     {
         if (characterSelectPanel != null)
@@ -289,10 +323,11 @@ public class MainMenuController : MonoBehaviour
         RectTransform window = characterSelectPanel.transform.GetChild(0).GetComponent<RectTransform>();
         CreateText(window, "ВЫБОР ПЕРСОНАЖА", Anchor.Center, new Vector2(0f, 160f), new Vector2(620f, 56f), 38, TextAnchor.MiddleCenter, Color.white);
 
+        BrainrotCharacterDefinition[] characters = BrainrotCharacterRegistry.SelectableCharacters;
         float startX = -190f;
-        for (int i = 0; i < Characters.Length; i++)
+        for (int i = 0; i < characters.Length; i++)
         {
-            CharacterOption option = Characters[i];
+            BrainrotCharacterDefinition option = characters[i];
             Button button = CreateMenuButton(window, option.displayName, Anchor.Center, new Vector2(startX + i * 380f, 20f), new Vector2(310f, 145f), 28);
             button.onClick.AddListener(() => SelectCharacter(option));
         }
@@ -301,7 +336,7 @@ public class MainMenuController : MonoBehaviour
         backButton.onClick.AddListener(() => characterSelectPanel.SetActive(false));
     }
 
-    private void SelectCharacter(CharacterOption option)
+    private void SelectCharacter(BrainrotCharacterDefinition option)
     {
         PlaySound(pressSound);
         PlayerPrefs.SetString(ArenaModeKey, ArenaModeValue);
@@ -419,7 +454,7 @@ public class MainMenuController : MonoBehaviour
         }
 
         string character = string.IsNullOrEmpty(localSelectedCharacter)
-            ? PlayerPrefs.GetString(SelectedCharacterKey, "Sahur")
+            ? PlayerPrefs.GetString(SelectedCharacterKey, BrainrotCharacterRegistry.Sahur)
             : localSelectedCharacter;
 
         FixedString64Bytes characterValue = character;

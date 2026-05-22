@@ -94,6 +94,7 @@ public class SahurPvpNetworkController : MonoBehaviour
         writer.WriteValueSafe(localFighter.NetworkBlocking);
         writer.WriteValueSafe(localFighter.LastAttackSequence);
         writer.WriteValueSafe(localFighter.LastAttackTrigger);
+        writer.WriteValueSafe(localFighter.CurrentSuperCharge);
 
         if (NetworkManager.Singleton.IsHost)
         {
@@ -126,6 +127,7 @@ public class SahurPvpNetworkController : MonoBehaviour
         reader.ReadValueSafe(out bool blocking);
         reader.ReadValueSafe(out int attackSequence);
         reader.ReadValueSafe(out int attackTrigger);
+        reader.ReadValueSafe(out float superCharge);
 
         remoteFighter.ApplyRemoteState(
             new Vector3(x, y, z),
@@ -138,15 +140,18 @@ public class SahurPvpNetworkController : MonoBehaviour
             blocking,
             attackSequence,
             attackTrigger);
+        remoteFighter.ApplyRemoteSuperCharge(superCharge);
     }
 
-    public void SendDamageToRemote(int amount)
+    public void SendDamageToRemote(int amount, bool hasKnockback = false, float knockbackDirection = 0f)
     {
         if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsListening)
             return;
 
-        using FastBufferWriter writer = new FastBufferWriter(8, Allocator.Temp);
+        using FastBufferWriter writer = new FastBufferWriter(32, Allocator.Temp);
         writer.WriteValueSafe(amount);
+        writer.WriteValueSafe(hasKnockback);
+        writer.WriteValueSafe(knockbackDirection);
 
         if (NetworkManager.Singleton.IsHost)
         {
@@ -171,7 +176,9 @@ public class SahurPvpNetworkController : MonoBehaviour
     private void OnDamageMessage(ulong senderClientId, FastBufferReader reader)
     {
         reader.ReadValueSafe(out int amount);
+        reader.ReadValueSafe(out bool hasKnockback);
+        reader.ReadValueSafe(out float knockbackDirection);
         if (localFighter != null)
-            localFighter.ApplyNetworkDamage(amount);
+            localFighter.ApplyNetworkDamage(amount, hasKnockback, knockbackDirection);
     }
 }
