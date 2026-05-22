@@ -1,4 +1,4 @@
-﻿using Unity.Collections;
+using Unity.Collections;
 using Unity.Netcode;
 using Unity.Netcode.Transports.UTP;
 using UnityEngine;
@@ -11,6 +11,8 @@ public class MainMenuController : MonoBehaviour
     private const string ArenaModeValue = "Sahur";
     private const string TutorialModeKey = "BattleForBrainrot.TutorialMode";
     private const string TutorialCompletedKey = "BattleForBrainrot.TutorialCompleted";
+    private const string TutorialVersionKey = "BattleForBrainrot.TutorialVersion";
+    private const int CurrentTutorialVersion = 2;
     private const string SelectedCharacterKey = "SelectedCharacter";
     private const string RemoteSelectedCharacterKey = "RemoteSelectedCharacter";
     private const string CharacterSelectionMessage = "BrainrotCharacterSelection";
@@ -50,15 +52,10 @@ public class MainMenuController : MonoBehaviour
         selectedGameMode = PlayerPrefs.GetString(GameModeKey, GameModePve);
         selectedInputMode = PlayerPrefs.GetString(InputModeKey, InputModeKeyboard);
 
-        if (ShouldStartFirstLaunchTutorial())
-        {
-            StartFirstLaunchTutorial();
-            return;
-        }
-
         PlayerPrefs.DeleteKey(ArenaModeKey);
         PlayerPrefs.DeleteKey(SelectedCharacterKey);
         PlayerPrefs.DeleteKey(RemoteSelectedCharacterKey);
+        PlayerPrefs.DeleteKey(TutorialModeKey);
 
         HideLegacyMenuObjects();
         HideLegacySceneUi();
@@ -94,7 +91,10 @@ public class MainMenuController : MonoBehaviour
     public void OnPlayPressed()
     {
         PlaySound(pressSound);
-        ShowCharacterSelect();
+        if (ShouldStartFirstLaunchTutorial())
+            StartFirstLaunchTutorial();
+        else
+            ShowCharacterSelect();
     }
 
     public void OnMenuButtonPressed(int nextMenu)
@@ -119,8 +119,9 @@ public class MainMenuController : MonoBehaviour
 
     private static bool ShouldStartFirstLaunchTutorial()
     {
-        return PlayerPrefs.GetInt(TutorialCompletedKey, 0) == 0 &&
-               PlayerPrefs.GetInt(TutorialModeKey, 0) == 0;
+        return PlayerPrefs.GetInt(TutorialModeKey, 0) == 0 &&
+               (PlayerPrefs.GetInt(TutorialCompletedKey, 0) == 0 ||
+                PlayerPrefs.GetInt(TutorialVersionKey, 0) < CurrentTutorialVersion);
     }
 
     private static void StartFirstLaunchTutorial()
@@ -346,6 +347,12 @@ public class MainMenuController : MonoBehaviour
         PlayerPrefs.SetString(SelectedCharacterKey, option.resourceName);
         PlayerPrefs.DeleteKey(RemoteSelectedCharacterKey);
         PlayerPrefs.Save();
+
+        if (ShouldStartFirstLaunchTutorial())
+        {
+            StartFirstLaunchTutorial();
+            return;
+        }
 
         if (selectedGameMode == GameModePvp)
             ShowMatchmakingPanel();
@@ -650,6 +657,7 @@ public class MainMenuController : MonoBehaviour
             audioSource.PlayOneShot(clip);
     }
 }
+
 
 
 

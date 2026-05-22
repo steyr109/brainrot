@@ -1,4 +1,4 @@
-public struct BrainrotCharacterDefinition
+﻿public struct BrainrotCharacterDefinition
 {
     public string displayName;
     public string resourceName;
@@ -31,7 +31,7 @@ public static class BrainrotCharacterRegistry
     };
 
     private static readonly BrainrotCharacterDefinition TutorialShotoDefinition =
-        new BrainrotCharacterDefinition("SHOTO", Shoto, 0.82f, 0.65f, false, true);
+        new BrainrotCharacterDefinition("SHOTO", Shoto, 0.74f, -0.55f, false, true);
 
     public static BrainrotCharacterDefinition[] SelectableCharacters => SelectableDefinitions;
 

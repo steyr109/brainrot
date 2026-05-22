@@ -1,4 +1,4 @@
-﻿using System.Collections;
+using System.Collections;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -28,6 +28,8 @@ public class SahurFighterController : MonoBehaviour
     private const float KnockbackDamping = 18f;
     private const float HitPauseDuration = 0.055f;
     private const float SuperHitPauseDuration = 0.085f;
+    private const int TutorialAiBasicAttackDamage = 4;
+    private const float TutorialAiBasicAttackRecovery = 1.05f;
 
     [SerializeField] private bool playerControlled = true;
     [SerializeField] private int maxHealth = 100;
@@ -243,24 +245,20 @@ public class SahurFighterController : MonoBehaviour
 
     private float GetMovementInput()
     {
-        if (UsesVirtualInput())
-            return virtualHorizontal;
+        float input = UsesVirtualInput() ? virtualHorizontal : 0f;
 
         Keyboard keyboard = Keyboard.current;
-        if (keyboard == null)
-            return 0f;
+        if (keyboard != null)
+        {
+            if (keyboard.aKey.isPressed) input -= 1f;
+            if (keyboard.dKey.isPressed) input += 1f;
+        }
 
-        float input = 0f;
-        if (keyboard.aKey.isPressed) input -= 1f;
-        if (keyboard.dKey.isPressed) input += 1f;
-        return input;
+        return Mathf.Clamp(input, -1f, 1f);
     }
 
     private void HandleJumpInput()
     {
-        if (UsesVirtualInput())
-            return;
-
         Keyboard keyboard = Keyboard.current;
         if (keyboard != null && grounded && keyboard.wKey.wasPressedThisFrame)
         {
@@ -284,9 +282,6 @@ public class SahurFighterController : MonoBehaviour
 
     private void HandleAttackInput()
     {
-        if (UsesVirtualInput())
-            return;
-
         Keyboard keyboard = Keyboard.current;
         if (keyboard == null || Time.time < nextAttackTime || blocking || attackCoroutine != null)
             return;
@@ -359,7 +354,7 @@ public class SahurFighterController : MonoBehaviour
             if (basicAttackOnlyAi)
             {
                 if (attackCoroutine == null && Time.time >= nextAttackTime && distance <= 1.65f)
-                    StartAttack(new AttackTiming(LowPunch, 8, 0.16f, 0.18f, 0.42f, 1.45f, 0.9f, 0.65f));
+                    StartAttack(new AttackTiming(LowPunch, TutorialAiBasicAttackDamage, 0.16f, 0.18f, TutorialAiBasicAttackRecovery, 1.45f, 0.9f, 0.65f));
 
                 aiMoveDirection = distance > 1.35f ? directionToOpponent : 0f;
                 return aiMoveDirection;

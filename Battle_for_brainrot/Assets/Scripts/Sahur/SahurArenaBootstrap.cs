@@ -1,4 +1,4 @@
-﻿using System.Collections;
+using System.Collections;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem.UI;
@@ -11,6 +11,8 @@ public class SahurArenaBootstrap : MonoBehaviour
     private const string ArenaModeValue = "Sahur";
     private const string TutorialModeKey = "BattleForBrainrot.TutorialMode";
     private const string TutorialCompletedKey = "BattleForBrainrot.TutorialCompleted";
+    private const string TutorialVersionKey = "BattleForBrainrot.TutorialVersion";
+    private const int CurrentTutorialVersion = 2;
     private const string SelectedCharacterKey = "SelectedCharacter";
     private const string RemoteSelectedCharacterKey = "RemoteSelectedCharacter";
     private const string CryptaKey = "BattleForBrainrot.Crypta";
@@ -74,10 +76,17 @@ public class SahurArenaBootstrap : MonoBehaviour
 
     private static void OnSceneLoaded(Scene scene, LoadSceneMode mode)
     {
+        if (scene.name != "3DStage")
+            return;
+
         bool hasSelectedCharacter = !string.IsNullOrEmpty(PlayerPrefs.GetString(SelectedCharacterKey, string.Empty));
         bool tutorialMode = PlayerPrefs.GetInt(TutorialModeKey, 0) == 1;
-        if (scene.name != "3DStage" || (PlayerPrefs.GetString(ArenaModeKey) != ArenaModeValue && !hasSelectedCharacter && !tutorialMode))
+        bool hasArenaRequest = PlayerPrefs.GetString(ArenaModeKey) == ArenaModeValue || hasSelectedCharacter || tutorialMode;
+        if (!hasArenaRequest)
+        {
+            SceneManager.LoadScene("Menu", LoadSceneMode.Single);
             return;
+        }
 
         var existing = FindFirstObjectByType<SahurArenaBootstrap>();
         if (existing == null)
@@ -86,6 +95,7 @@ public class SahurArenaBootstrap : MonoBehaviour
 
     private void Start()
     {
+        Time.timeScale = 1f;
         tutorialModeActive = PlayerPrefs.GetInt(TutorialModeKey, 0) == 1;
         ClearLegacyFightScene();
         BuildArenaVisuals();
@@ -173,6 +183,10 @@ public class SahurArenaBootstrap : MonoBehaviour
         enemyObject.name = rightFighterDefinition.displayName + " Opponent";
         playerObject.transform.localScale = Vector3.one * leftFighterDefinition.scale;
         enemyObject.transform.localScale = Vector3.one * rightFighterDefinition.scale;
+        NormalizeFighterVisual(playerObject, leftFighterDefinition.spawnY);
+        NormalizeFighterVisual(enemyObject, rightFighterDefinition.spawnY);
+        EnsureFighterVisible(playerObject);
+        EnsureFighterVisible(enemyObject);
 
         player = PrepareFighter(playerObject);
         enemy = PrepareFighter(enemyObject);
@@ -202,6 +216,51 @@ public class SahurArenaBootstrap : MonoBehaviour
         {
             ownedFighter = player;
         }
+    }
+
+    private static void NormalizeFighterVisual(GameObject fighterObject, float groundY)
+    {
+        Bounds bounds = GetRendererBounds(fighterObject);
+        if (bounds.size == Vector3.zero)
+            return;
+
+        Vector3 delta = new Vector3(0f, groundY - bounds.min.y, -bounds.center.z);
+        for (int i = 0; i < fighterObject.transform.childCount; i++)
+            fighterObject.transform.GetChild(i).position += delta;
+    }
+
+    private static void EnsureFighterVisible(GameObject fighterObject)
+    {
+        foreach (Renderer renderer in fighterObject.GetComponentsInChildren<Renderer>(true))
+        {
+            renderer.enabled = true;
+            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
+            renderer.receiveShadows = true;
+        }
+    }
+
+    private static Bounds GetRendererBounds(GameObject fighterObject)
+    {
+        Renderer[] renderers = fighterObject.GetComponentsInChildren<Renderer>(true);
+        bool hasBounds = false;
+        Bounds bounds = new Bounds(fighterObject.transform.position, Vector3.zero);
+        foreach (Renderer renderer in renderers)
+        {
+            if (renderer == null)
+                continue;
+
+            if (!hasBounds)
+            {
+                bounds = renderer.bounds;
+                hasBounds = true;
+            }
+            else
+            {
+                bounds.Encapsulate(renderer.bounds);
+            }
+        }
+
+        return hasBounds ? bounds : new Bounds(fighterObject.transform.position, Vector3.zero);
     }
 
     private SahurFighterController PrepareFighter(GameObject fighterObject)
@@ -393,6 +452,7 @@ public class SahurArenaBootstrap : MonoBehaviour
         if (tutorialModeActive)
         {
             PlayerPrefs.SetInt(TutorialCompletedKey, 1);
+            PlayerPrefs.SetInt(TutorialVersionKey, CurrentTutorialVersion);
             PlayerPrefs.DeleteKey(TutorialModeKey);
         }
         PlayerPrefs.Save();
@@ -1024,5 +1084,6 @@ public class BrainrotAudioEvents : MonoBehaviour
             source.PlayOneShot(clip);
     }
 }
+
 
 
