@@ -1,4 +1,4 @@
-﻿public struct BrainrotCharacterDefinition
+public struct BrainrotCharacterDefinition
 {
     public string displayName;
     public string resourceName;
@@ -22,12 +22,14 @@ public static class BrainrotCharacterRegistry
 {
     public const string Sahur = "Sahur";
     public const string BalerinaCapuchino = "BalerinaCapuchino";
+    public const string TralaleloTralala = "TralaleloTralala";
     public const string Shoto = "Shoto";
 
     private static readonly BrainrotCharacterDefinition[] SelectableDefinitions =
     {
         new BrainrotCharacterDefinition("SAHUR", Sahur, 0.27f, -0.55f, true),
-        new BrainrotCharacterDefinition("BALERINA CAPUCHINO", BalerinaCapuchino, 0.27f, -0.55f, true)
+        new BrainrotCharacterDefinition("BALERINA CAPUCHINO", BalerinaCapuchino, 0.27f, -0.55f, true),
+        new BrainrotCharacterDefinition("TRALALELO TRALALA", TralaleloTralala, 0.27f, -1.10f, true)
     };
 
     private static readonly BrainrotCharacterDefinition TutorialShotoDefinition =

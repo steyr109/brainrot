@@ -1,4 +1,4 @@
-using System.Collections;
+﻿using System.Collections;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem.UI;
@@ -23,6 +23,14 @@ public class SahurArenaBootstrap : MonoBehaviour
     private const float RoundDuration = 60f;
     private const int VictoryReward = 50;
     private const int TutorialVictoryReward = 15;
+    private static readonly string[] ArenaSceneNames = { "Map1", "Map2" };
+    private const float ArenaFightGroundY = -0.55f;
+    private const float ArenaFightPlaneZ = 0f;
+    private static readonly Vector3 ArenaCameraPosition = new Vector3(0f, 1.58f, -6.85f);
+    private static readonly Quaternion ArenaCameraRotation = Quaternion.Euler(5.2f, 0f, 0f);
+    private const float ArenaCameraFov = 45f;
+    private const float LoadedArenaSourceGroundY = -1.04f;
+    private const float LoadedArenaSourcePlaneZ = 6.65f;
 
     private HealthBarView playerHealthBar;
     private HealthBarView enemyHealthBar;
@@ -52,6 +60,8 @@ public class SahurArenaBootstrap : MonoBehaviour
     private bool tutorialAttacked;
     private bool tutorialSuperSeenReady;
     private float tutorialStartX;
+    private string loadedArenaSceneName;
+    private static readonly System.Collections.Generic.Dictionary<string, Material> arenaMaterialCache = new System.Collections.Generic.Dictionary<string, Material>();
 
     private class HealthBarView
     {
@@ -98,7 +108,7 @@ public class SahurArenaBootstrap : MonoBehaviour
         Time.timeScale = 1f;
         tutorialModeActive = PlayerPrefs.GetInt(TutorialModeKey, 0) == 1;
         ClearLegacyFightScene();
-        BuildArenaVisuals();
+        LoadRandomArenaScene();
         audioEvents = BrainrotAudioEvents.Ensure();
         audioEvents.PlayFightStart();
         SpawnFighters();
@@ -141,6 +151,7 @@ public class SahurArenaBootstrap : MonoBehaviour
         DisableSceneObject("GUI");
         DisableSceneObject("Rematch Canvas");
         DisableSceneObject("Round Animator");
+        ClearLegacyArenaObjects();
 
         foreach (NewFighter legacyFighter in FindObjectsByType<NewFighter>(FindObjectsSortMode.None))
             Destroy(legacyFighter.gameObject);
@@ -149,6 +160,26 @@ public class SahurArenaBootstrap : MonoBehaviour
             Destroy(projectile.gameObject);
     }
 
+
+    private static void ClearLegacyArenaObjects()
+    {
+        string[] legacyObjectNames =
+        {
+            "TheGrid",
+            "Ground",
+            "Left Wall",
+            "Right Wall",
+            "Main Camera",
+            "Front Camera",
+            "Back Camera",
+            "Particle Camera",
+            "Directional Light",
+            "Post Processing Volume"
+        };
+
+        for (int i = 0; i < legacyObjectNames.Length; i++)
+            DisableSceneObject(legacyObjectNames[i]);
+    }
     private static void DisableSceneObject(string objectName)
     {
         GameObject target = GameObject.Find(objectName);
@@ -160,7 +191,7 @@ public class SahurArenaBootstrap : MonoBehaviour
     {
         bool tutorialMode = PlayerPrefs.GetInt(TutorialModeKey, 0) == 1;
         bool pvpMode = PlayerPrefs.GetString(GameModeKey, "PVE") == GameModePvp;
-        bool hostOwnsLeft = Application.isEditor;
+        bool hostOwnsLeft = PlayerPrefs.GetInt(BrainrotNetworkConfig.PvpOwnsLeftKey, 1) == 1;
 
         BrainrotCharacterDefinition localDefinition = GetSelectedFighter();
         BrainrotCharacterDefinition remoteDefinition = tutorialMode ? BrainrotCharacterRegistry.TutorialShoto : pvpMode ? GetRemoteFighter() : localDefinition;
@@ -176,15 +207,17 @@ public class SahurArenaBootstrap : MonoBehaviour
         }
 
         float rightSpawnX = tutorialMode ? -1.15f : 2.6f;
-        GameObject playerObject = Instantiate(leftPrefab, new Vector3(-2.6f, leftFighterDefinition.spawnY, 0f), Quaternion.identity);
-        GameObject enemyObject = Instantiate(rightPrefab, new Vector3(rightSpawnX, rightFighterDefinition.spawnY, 0f), Quaternion.identity);
+        float leftGroundY = leftFighterDefinition.spawnY;
+        float rightGroundY = rightFighterDefinition.spawnY;
+        GameObject playerObject = Instantiate(leftPrefab, new Vector3(-2.6f, leftGroundY, ArenaFightPlaneZ), Quaternion.identity);
+        GameObject enemyObject = Instantiate(rightPrefab, new Vector3(rightSpawnX, rightGroundY, ArenaFightPlaneZ), Quaternion.identity);
 
         playerObject.name = leftFighterDefinition.displayName + " Player";
         enemyObject.name = rightFighterDefinition.displayName + " Opponent";
         playerObject.transform.localScale = Vector3.one * leftFighterDefinition.scale;
         enemyObject.transform.localScale = Vector3.one * rightFighterDefinition.scale;
-        NormalizeFighterVisual(playerObject, leftFighterDefinition.spawnY);
-        NormalizeFighterVisual(enemyObject, rightFighterDefinition.spawnY);
+        NormalizeFighterVisual(playerObject, leftGroundY);
+        NormalizeFighterVisual(enemyObject, rightGroundY);
         EnsureFighterVisible(playerObject);
         EnsureFighterVisible(enemyObject);
 
@@ -197,8 +230,8 @@ public class SahurArenaBootstrap : MonoBehaviour
         if (tutorialMode)
             enemy.SetBasicAttackOnlyAi(true);
 
-        player.Initialize(playerIsLocal, enemy, 100, leftFighterDefinition.spawnY);
-        enemy.Initialize(enemyIsLocal, player, 100, rightFighterDefinition.spawnY);
+        player.Initialize(playerIsLocal, enemy, 100, leftGroundY);
+        enemy.Initialize(enemyIsLocal, player, 100, rightGroundY);
         player.SetOpponent(enemy);
         enemy.SetOpponent(player);
 
@@ -299,7 +332,7 @@ public class SahurArenaBootstrap : MonoBehaviour
         if (tutorialModeActive)
             tutorialHintText = CreateTutorialHint(canvas.transform);
 
-        if (PlayerPrefs.GetString(InputModeKey, InputModeKeyboard) != InputModeKeyboard)
+        if (UsesTouchControls())
             CreateJoystickControls(canvas.transform);
     }
 
@@ -508,6 +541,194 @@ public class SahurArenaBootstrap : MonoBehaviour
         resultPanel.SetActive(false);
     }
 
+
+    private void LoadRandomArenaScene()
+    {
+        if (ArenaSceneNames == null || ArenaSceneNames.Length == 0)
+            return;
+
+        loadedArenaSceneName = ArenaSceneNames[Random.Range(0, ArenaSceneNames.Length)];
+        Scene arenaScene = SceneManager.GetSceneByName(loadedArenaSceneName);
+        if (!arenaScene.isLoaded)
+            SceneManager.LoadScene(loadedArenaSceneName, LoadSceneMode.Additive);
+
+        StartCoroutine(ConfigureLoadedArenaCamera());
+    }
+
+    private IEnumerator ConfigureLoadedArenaCamera()
+    {
+        yield return null;
+
+        Camera[] cameras = FindObjectsByType<Camera>(FindObjectsSortMode.None);
+        Camera arenaCamera = null;
+        for (int i = 0; i < cameras.Length; i++)
+        {
+            Camera candidate = cameras[i];
+            if (candidate != null && candidate.gameObject.scene.name == loadedArenaSceneName)
+            {
+                arenaCamera = candidate;
+                break;
+            }
+        }
+
+        AlignLoadedArenaToFightPlane();
+        FixLoadedArenaMaterials();
+
+        if (arenaCamera == null)
+            yield break;
+
+        for (int i = 0; i < cameras.Length; i++)
+        {
+            Camera candidate = cameras[i];
+            if (candidate == null || candidate == arenaCamera)
+                continue;
+
+            if (candidate.CompareTag("MainCamera"))
+                candidate.tag = "Untagged";
+        }
+
+        arenaCamera.enabled = true;
+        arenaCamera.tag = "MainCamera";
+        arenaCamera.transform.position = ArenaCameraPosition;
+        arenaCamera.transform.rotation = ArenaCameraRotation;
+        arenaCamera.fieldOfView = ArenaCameraFov;
+    }
+
+
+    private void AlignLoadedArenaToFightPlane()
+    {
+        if (string.IsNullOrEmpty(loadedArenaSceneName))
+            return;
+
+        Scene arenaScene = SceneManager.GetSceneByName(loadedArenaSceneName);
+        if (!arenaScene.isLoaded)
+            return;
+
+        Vector3 offset = new Vector3(0f, ArenaFightGroundY - LoadedArenaSourceGroundY, ArenaFightPlaneZ - LoadedArenaSourcePlaneZ);
+        GameObject[] roots = arenaScene.GetRootGameObjects();
+        for (int i = 0; i < roots.Length; i++)
+        {
+            GameObject root = roots[i];
+            if (root == null || root.GetComponent<Camera>() != null || root.GetComponent<Light>() != null)
+                continue;
+
+            root.transform.position += offset;
+        }
+    }
+    private void FixLoadedArenaMaterials()
+    {
+        if (string.IsNullOrEmpty(loadedArenaSceneName))
+            return;
+
+        Renderer[] renderers = FindObjectsByType<Renderer>(FindObjectsSortMode.None);
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            Renderer renderer = renderers[i];
+            if (renderer == null || renderer.gameObject.scene.name != loadedArenaSceneName)
+                continue;
+
+            Material[] materials = renderer.sharedMaterials;
+            bool changed = false;
+            for (int materialIndex = 0; materialIndex < materials.Length; materialIndex++)
+            {
+                if (!IsBrokenArenaMaterial(materials[materialIndex]))
+                    continue;
+
+                materials[materialIndex] = GetArenaFallbackMaterial(renderer.gameObject.name, materialIndex);
+                changed = true;
+            }
+
+            if (changed)
+                renderer.sharedMaterials = materials;
+        }
+    }
+
+    private static bool IsBrokenArenaMaterial(Material material)
+    {
+        if (material == null || material.shader == null)
+            return true;
+
+        string shaderName = material.shader.name;
+        if (string.IsNullOrEmpty(shaderName) || shaderName.Contains("InternalErrorShader"))
+            return true;
+
+        Color color = material.HasProperty("_BaseColor") ? material.GetColor("_BaseColor") : material.HasProperty("_Color") ? material.GetColor("_Color") : Color.white;
+        return color.r > 0.95f && color.g < 0.05f && color.b > 0.95f;
+    }
+
+    private static Material GetArenaFallbackMaterial(string objectName, int materialIndex)
+    {
+        Color color = GetArenaFallbackColor(objectName, materialIndex);
+        string key = color.ToString();
+        if (arenaMaterialCache.TryGetValue(key, out Material cachedMaterial))
+            return cachedMaterial;
+
+        Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
+        if (shader == null)
+            shader = Shader.Find("Universal Render Pipeline/Lit");
+        if (shader == null)
+            shader = Shader.Find("Unlit/Color");
+        if (shader == null)
+            shader = Shader.Find("Standard");
+
+        Material material = new Material(shader);
+        material.name = "Arena Fallback " + key;
+        material.color = color;
+        if (material.HasProperty("_BaseColor"))
+            material.SetColor("_BaseColor", color);
+        if (material.HasProperty("_Color"))
+            material.SetColor("_Color", color);
+
+        arenaMaterialCache[key] = material;
+        return material;
+    }
+
+    private static Color GetArenaFallbackColor(string objectName, int materialIndex)
+    {
+        string name = objectName == null ? string.Empty : objectName.ToLowerInvariant();
+
+        if (name.Contains("shadow") || name.Contains("navy") || name.Contains("deep sea"))
+            return new Color(0.06f, 0.12f, 0.28f, 1f);
+        if (name.Contains("mint") || name.Contains("fighting slab"))
+            return new Color(0.44f, 0.96f, 0.72f, 1f);
+        if (name.Contains("sand") || name.Contains("beach"))
+            return new Color(1f, 0.78f, 0.42f, 1f);
+        if (name.Contains("bubblegum") || name.Contains("pink") || name.Contains("coral"))
+            return new Color(1f, 0.28f, 0.58f, 1f);
+        if (name.Contains("purple") || name.Contains("lavender"))
+            return new Color(0.62f, 0.38f, 1f, 1f);
+        if (name.Contains("aqua") || name.Contains("cyan") || name.Contains("teal") || name.Contains("wave"))
+            return new Color(0.05f, 0.84f, 1f, 1f);
+        if (name.Contains("yellow") || name.Contains("sun") || name.Contains("cream") || name.Contains("trim"))
+            return new Color(1f, 0.86f, 0.28f, 1f);
+        if (name.Contains("palm") || name.Contains("leaf"))
+            return new Color(0.12f, 0.72f, 0.36f, 1f);
+        if (name.Contains("trunk") || name.Contains("plank") || name.Contains("boardwalk"))
+            return new Color(0.72f, 0.42f, 0.22f, 1f);
+        if (name.Contains("cloud") || name.Contains("foam"))
+            return new Color(0.94f, 0.98f, 1f, 1f);
+        if (name.Contains("crowd") || name.Contains("stall") || name.Contains("block") || name.Contains("tile"))
+        {
+            Color[] palette =
+            {
+                new Color(1f, 0.27f, 0.35f, 1f),
+                new Color(0.12f, 0.78f, 1f, 1f),
+                new Color(1f, 0.78f, 0.12f, 1f),
+                new Color(0.46f, 0.92f, 0.34f, 1f),
+                new Color(0.74f, 0.42f, 1f, 1f)
+            };
+            return palette[Mathf.Abs((name.GetHashCode() + materialIndex) % palette.Length)];
+        }
+
+        Color[] defaultPalette =
+        {
+            new Color(0.28f, 0.78f, 1f, 1f),
+            new Color(1f, 0.42f, 0.62f, 1f),
+            new Color(1f, 0.82f, 0.24f, 1f),
+            new Color(0.44f, 0.92f, 0.66f, 1f)
+        };
+        return defaultPalette[Mathf.Abs((name.GetHashCode() + materialIndex) % defaultPalette.Length)];
+    }
     private static void BuildArenaVisuals()
     {
         if (GameObject.Find("Brainrot Demo Arena Visuals") != null)
@@ -601,6 +822,11 @@ public class SahurArenaBootstrap : MonoBehaviour
         lightObject.transform.rotation = rotation;
     }
 
+    private static bool UsesTouchControls()
+    {
+        return Application.isMobilePlatform || PlayerPrefs.GetString(InputModeKey, InputModeKeyboard) != InputModeKeyboard;
+    }
+
     private static Text CreateTutorialHint(Transform parent)
     {
         RectTransform root = new GameObject("Tutorial Hint").AddComponent<RectTransform>();
@@ -614,9 +840,9 @@ public class SahurArenaBootstrap : MonoBehaviour
         Image back = root.gameObject.AddComponent<Image>();
         back.color = new Color(0f, 0f, 0f, 0.52f);
 
-        string hint = PlayerPrefs.GetString(InputModeKey, InputModeKeyboard) == InputModeKeyboard
-            ? "ОБУЧЕНИЕ: A/D - движение, W - прыжок, 1/2/3 - удары. Победи Shoto."
-            : "ОБУЧЕНИЕ: джойстик - движение, JUMP - прыжок, 1/2/3 - удары. Победи Shoto.";
+        string hint = UsesTouchControls()
+            ? "ОБУЧЕНИЕ: джойстик - движение, JUMP - прыжок, 1/2/3 - удары. Победи Shoto."
+            : "ОБУЧЕНИЕ: A/D - движение, W - прыжок, 1/2/3 - удары. Победи Shoto.";
 
         Text text = CreateUiText(root, hint, 24, TextAnchor.MiddleCenter, Color.white);
         RectTransform textRect = text.GetComponent<RectTransform>();
@@ -644,17 +870,17 @@ public class SahurArenaBootstrap : MonoBehaviour
         if (!tutorialSuperSeenReady && player.SuperChargeNormalized >= 1f)
             tutorialSuperSeenReady = true;
 
-        bool joystick = PlayerPrefs.GetString(InputModeKey, InputModeKeyboard) != InputModeKeyboard;
+        bool joystick = UsesTouchControls();
         if (!tutorialMoved)
             tutorialHintText.text = joystick ? "ОБУЧЕНИЕ: подвигай джойстик влево или вправо." : "ОБУЧЕНИЕ: нажми A или D, чтобы подвигаться.";
         else if (!tutorialJumped)
             tutorialHintText.text = joystick ? "ОБУЧЕНИЕ: нажми JUMP, чтобы прыгнуть." : "ОБУЧЕНИЕ: нажми W, чтобы прыгнуть.";
         else if (!tutorialAttacked)
-            tutorialHintText.text = joystick ? "ОБУЧЕНИЕ: нажми 1 или 2, чтобы ударить Shoto." : "ОБУЧЕНИЕ: нажми 1 или 2, чтобы ударить Shoto.";
+            tutorialHintText.text = "ОБУЧЕНИЕ: нажми 1 или 2, чтобы ударить Shoto.";
         else if (!tutorialSuperSeenReady)
             tutorialHintText.text = "ОБУЧЕНИЕ: попадай по Shoto и получай урон, чтобы заполнить SUPER.";
         else if (player.SuperChargeNormalized >= 1f)
-            tutorialHintText.text = joystick ? "ОБУЧЕНИЕ: SUPER готов. Нажми 3." : "ОБУЧЕНИЕ: SUPER готов. Нажми 3.";
+            tutorialHintText.text = "ОБУЧЕНИЕ: SUPER готов. Нажми 3.";
         else
             tutorialHintText.text = "ОБУЧЕНИЕ: отлично. Победи Shoto.";
     }
@@ -755,12 +981,7 @@ public class SahurArenaBootstrap : MonoBehaviour
 
     private static void EnsureEventSystem()
     {
-        if (FindFirstObjectByType<EventSystem>() != null)
-            return;
-
-        GameObject eventSystemObject = new GameObject("EventSystem");
-        eventSystemObject.AddComponent<EventSystem>();
-        eventSystemObject.AddComponent<InputSystemUIInputModule>();
+        BrainrotUiInput.EnsureEventSystem();
     }
 
     private static HealthBarView CreateCornerHealthBar(Transform parent, string label, Vector2 anchoredPosition, bool leftSide, Color fillColor)
@@ -1030,6 +1251,7 @@ public class ArenaGlitchObject : MonoBehaviour
 
 public class BrainrotAudioEvents : MonoBehaviour
 {
+    private const float FightMusicVolume = 0.5f;
     [SerializeField] private AudioClip fightStartClip;
     [SerializeField] private AudioClip hitClip;
     [SerializeField] private AudioClip superHitClip;
@@ -1061,11 +1283,27 @@ public class BrainrotAudioEvents : MonoBehaviour
         source = GetComponent<AudioSource>();
         if (source == null)
             source = gameObject.AddComponent<AudioSource>();
+
+        LoadDefaultClips();
     }
 
+
+    private void LoadDefaultClips()
+    {
+        if (fightStartClip == null)
+            fightStartClip = Resources.Load<AudioClip>("Audio/UI_Sounds/Fight_Theme_1");
+        if (hitClip == null)
+            hitClip = Resources.Load<AudioClip>("Audio/Punch1");
+        if (superHitClip == null)
+            superHitClip = Resources.Load<AudioClip>("Audio/Thud1");
+        if (victoryClip == null)
+            victoryClip = Resources.Load<AudioClip>("Audio/UI_Sounds/Button_Click_2");
+        if (defeatClip == null)
+            defeatClip = Resources.Load<AudioClip>("Audio/Break");
+    }
     public void PlayFightStart()
     {
-        Play(fightStartClip);
+        Play(fightStartClip, FightMusicVolume);
     }
 
     public void PlayHit(bool superHit)
@@ -1078,10 +1316,10 @@ public class BrainrotAudioEvents : MonoBehaviour
         Play(victory ? victoryClip : defeatClip);
     }
 
-    private void Play(AudioClip clip)
+    private void Play(AudioClip clip, float volumeScale = 1f)
     {
         if (source != null && clip != null)
-            source.PlayOneShot(clip);
+            source.PlayOneShot(clip, Mathf.Clamp01(volumeScale));
     }
 }
 

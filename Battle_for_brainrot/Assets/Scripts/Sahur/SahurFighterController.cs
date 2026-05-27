@@ -31,6 +31,14 @@ public class SahurFighterController : MonoBehaviour
     private const int TutorialAiBasicAttackDamage = 4;
     private const float TutorialAiBasicAttackRecovery = 1.05f;
 
+    private const float LightImpactShakeStrength = 0.075f;
+    private const float HeavyImpactShakeStrength = 0.12f;
+    private const float SuperImpactShakeStrength = 0.18f;
+    private const float ImpactShakeDuration = 0.13f;
+    private const float SuperImpactShakeDuration = 0.18f;
+    private const float StepDustCooldown = 0.16f;
+    private const float ImpactFxZ = -0.85f;
+
     [SerializeField] private bool playerControlled = true;
     [SerializeField] private int maxHealth = 100;
     [SerializeField] private float walkSpeed = 4f;
@@ -79,6 +87,11 @@ public class SahurFighterController : MonoBehaviour
     private static bool hitPauseActive;
     private static float hitPausePreviousTimeScale = 1f;
     private static float hitPausePreviousFixedDeltaTime = 0.02f;
+    private static Material impactMaterial;
+    private static Material superImpactMaterial;
+    private static Material dustMaterial;
+
+    private float nextStepDustTime;
 
     public int CurrentHealth { get; private set; }
     public int MaxHealth => maxHealth;
@@ -322,7 +335,7 @@ public class SahurFighterController : MonoBehaviour
 
     private bool UsesVirtualInput()
     {
-        return PlayerPrefs.GetString(InputModeKey, InputModeKeyboard) != InputModeKeyboard;
+        return Application.isMobilePlatform || PlayerPrefs.GetString(InputModeKey, InputModeKeyboard) != InputModeKeyboard;
     }
 
     private void TryStartAttack(int attackIndex)
@@ -430,6 +443,7 @@ public class SahurFighterController : MonoBehaviour
                     opponent.ApplyKnockback(knockbackDirection, SuperKnockbackForce);
                 GainSuper(SuperGainOnHit);
                 BrainrotAudioEvents.Ensure().PlayHit(attack.isSuper);
+                PlayImpactFeedback(attack);
                 StartCoroutine(HitPauseRoutine(attack.isSuper ? SuperHitPauseDuration : HitPauseDuration));
                 pvpNetwork?.SendDamageToRemote(damage, shouldKnockback, knockbackDirection);
                 hasHit = true;
@@ -495,6 +509,176 @@ public class SahurFighterController : MonoBehaviour
         {
             SetAnimatorTrigger(Hit);
         }
+    }
+
+    private void PlayImpactFeedback(AttackTiming attack)
+    {
+        if (opponent == null)
+            return;
+
+        float hitX = Mathf.Lerp(transform.position.x, opponent.transform.position.x, 0.5f);
+        float hitY = Mathf.Max(transform.position.y, opponent.transform.position.y) + attack.verticalOffset;
+        Vector3 impactPosition = new Vector3(hitX, hitY, ImpactFxZ);
+
+        SpawnImpactEffect(impactPosition, attack.isSuper);
+        float shakeStrength = attack.isSuper ? SuperImpactShakeStrength : attack.damage >= 12 ? HeavyImpactShakeStrength : LightImpactShakeStrength;
+        float shakeDuration = attack.isSuper ? SuperImpactShakeDuration : ImpactShakeDuration;
+        StartCoroutine(CameraShakeRoutine(shakeStrength, shakeDuration));
+        StartCoroutine(CameraPunchRoutine(attack.isSuper ? 3.0f : 1.6f, shakeDuration));
+    }
+
+    private void SpawnImpactEffect(Vector3 position, bool superHit)
+    {
+        Material material = superHit ? GetSuperImpactMaterial() : GetImpactMaterial();
+        float baseSize = superHit ? 1.25f : 0.85f;
+
+        CreateFxCube("Sahur Impact Core", position, Vector3.one * (baseSize * 0.34f), Quaternion.Euler(0f, 0f, 45f), material, 0.18f, 1.45f);
+
+        for (int i = 0; i < 5; i++)
+        {
+            float angle = -55f + i * 27.5f + Random.Range(-8f, 8f);
+            Vector3 offset = new Vector3(Random.Range(-0.12f, 0.12f), Random.Range(-0.12f, 0.12f), 0f);
+            Vector3 scale = new Vector3(baseSize * Random.Range(0.55f, 0.95f), baseSize * Random.Range(0.055f, 0.09f), 0.08f);
+            CreateFxCube("Sahur Impact Slash", position + offset, scale, Quaternion.Euler(0f, 0f, angle), material, 0.16f, 1.25f);
+        }
+    }
+
+    private void SpawnDustEffect(Vector3 position, float size)
+    {
+        Material material = GetDustMaterial();
+        int count = Mathf.Max(2, Mathf.RoundToInt(size * 3f));
+        for (int i = 0; i < count; i++)
+        {
+            Vector3 offset = new Vector3(Random.Range(-0.22f, 0.22f) * size, Random.Range(-0.02f, 0.1f) * size, 0f);
+            Vector3 scale = new Vector3(Random.Range(0.24f, 0.42f) * size, Random.Range(0.035f, 0.07f) * size, 0.06f);
+            float angle = Random.Range(-18f, 18f);
+            CreateFxCube("Sahur Movement Dust", position + offset, scale, Quaternion.Euler(0f, 0f, angle), material, 0.20f, 1.9f);
+        }
+    }
+
+    private void CreateFxCube(string objectName, Vector3 position, Vector3 scale, Quaternion rotation, Material material, float lifetime, float endScaleMultiplier)
+    {
+        GameObject fx = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        fx.name = objectName;
+        fx.layer = 0;
+        fx.transform.position = position;
+        fx.transform.rotation = rotation;
+        fx.transform.localScale = scale;
+
+        Collider collider = fx.GetComponent<Collider>();
+        if (collider != null)
+            Destroy(collider);
+
+        Renderer renderer = fx.GetComponent<Renderer>();
+        if (renderer != null)
+        {
+            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+            renderer.material = material;
+        }
+
+        StartCoroutine(AnimateFxCube(fx.transform, scale, lifetime, endScaleMultiplier));
+    }
+
+    private static IEnumerator AnimateFxCube(Transform target, Vector3 startScale, float lifetime, float endScaleMultiplier)
+    {
+        float elapsed = 0f;
+        while (target != null && elapsed < lifetime)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            float t = Mathf.Clamp01(elapsed / lifetime);
+            float scale = Mathf.Lerp(1f, endScaleMultiplier, t);
+            target.localScale = startScale * scale;
+            target.position += Vector3.up * (0.35f * Time.unscaledDeltaTime);
+            yield return null;
+        }
+
+        if (target != null)
+            Destroy(target.gameObject);
+    }
+
+    private static IEnumerator CameraShakeRoutine(float strength, float duration)
+    {
+        Camera camera = Camera.main;
+        if (camera == null || strength <= 0f || duration <= 0f)
+            yield break;
+
+        Transform cameraTransform = camera.transform;
+        Vector3 basePosition = cameraTransform.position;
+        float elapsed = 0f;
+
+        while (cameraTransform != null && elapsed < duration)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            float fade = 1f - Mathf.Clamp01(elapsed / duration);
+            Vector2 shake = Random.insideUnitCircle * (strength * fade);
+            cameraTransform.position = basePosition + new Vector3(shake.x, shake.y, 0f);
+            yield return null;
+        }
+
+        if (cameraTransform != null)
+            cameraTransform.position = basePosition;
+    }
+
+    private static IEnumerator CameraPunchRoutine(float fovKick, float duration)
+    {
+        Camera camera = Camera.main;
+        if (camera == null || fovKick <= 0f || duration <= 0f)
+            yield break;
+
+        float baseFov = camera.fieldOfView;
+        float elapsed = 0f;
+
+        while (camera != null && elapsed < duration)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            float t = Mathf.Clamp01(elapsed / duration);
+            float curve = 1f - Mathf.Abs((t * 2f) - 1f);
+            camera.fieldOfView = baseFov - fovKick * curve;
+            yield return null;
+        }
+
+        if (camera != null)
+            camera.fieldOfView = baseFov;
+    }
+
+    private static Material GetImpactMaterial()
+    {
+        if (impactMaterial == null)
+            impactMaterial = CreateFxMaterial("Sahur Impact Material", new Color(1f, 0.72f, 0.06f, 1f));
+        return impactMaterial;
+    }
+
+    private static Material GetSuperImpactMaterial()
+    {
+        if (superImpactMaterial == null)
+            superImpactMaterial = CreateFxMaterial("Sahur Super Impact Material", new Color(1f, 0.18f, 0.04f, 1f));
+        return superImpactMaterial;
+    }
+
+    private static Material GetDustMaterial()
+    {
+        if (dustMaterial == null)
+            dustMaterial = CreateFxMaterial("Sahur Dust Material", new Color(0.82f, 0.72f, 0.52f, 1f));
+        return dustMaterial;
+    }
+
+    private static Material CreateFxMaterial(string materialName, Color color)
+    {
+        Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
+        if (shader == null)
+            shader = Shader.Find("Unlit/Color");
+        if (shader == null)
+            shader = Shader.Find("Standard");
+
+        Material material = new Material(shader);
+        material.name = materialName;
+        material.color = color;
+        if (material.HasProperty("_BaseColor"))
+            material.SetColor("_BaseColor", color);
+        if (material.HasProperty("_Color"))
+            material.SetColor("_Color", color);
+        return material;
     }
 
     private static IEnumerator HitPauseRoutine(float duration)
@@ -652,8 +836,16 @@ public class SahurFighterController : MonoBehaviour
     private void Move(float horizontal)
     {
         Vector3 position = transform.position;
+        float previousX = position.x;
         position.x = Mathf.Clamp(position.x + horizontal * walkSpeed * Time.deltaTime, -stageLimit, stageLimit);
         transform.position = position;
+
+        if (grounded && Mathf.Abs(position.x - previousX) > 0.0025f && Time.unscaledTime >= nextStepDustTime)
+        {
+            nextStepDustTime = Time.unscaledTime + StepDustCooldown;
+            Vector3 dustPosition = transform.position + new Vector3(-Mathf.Sign(horizontal) * 0.18f, 0.08f, ImpactFxZ);
+            SpawnDustEffect(dustPosition, 0.55f);
+        }
     }
 
     private void ApplyKnockbackMotion()
@@ -674,6 +866,7 @@ public class SahurFighterController : MonoBehaviour
     {
         verticalVelocity = jumpForce;
         grounded = false;
+        SpawnDustEffect(transform.position + new Vector3(0f, 0.08f, ImpactFxZ), 0.8f);
 
         if (animator == null)
             return;
@@ -689,6 +882,7 @@ public class SahurFighterController : MonoBehaviour
     {
         verticalVelocity = 0f;
         grounded = true;
+        SpawnDustEffect(transform.position + new Vector3(0f, 0.08f, ImpactFxZ), 1.0f);
 
         if (animator == null)
             return;
@@ -832,7 +1026,6 @@ public class SahurFighterController : MonoBehaviour
         return true;
     }
 }
-
 
 
 

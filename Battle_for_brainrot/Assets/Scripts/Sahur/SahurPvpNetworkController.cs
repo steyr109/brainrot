@@ -1,13 +1,11 @@
 ﻿using Unity.Collections;
 using Unity.Netcode;
-using Unity.Netcode.Transports.UTP;
 using UnityEngine;
 
 public class SahurPvpNetworkController : MonoBehaviour
 {
     private const string StateMessage = "SahurPvpState";
     private const string DamageMessage = "SahurPvpDamage";
-    private const ushort Port = 7777;
     private const float SendInterval = 0.033f;
 
     private SahurFighterController localFighter;
@@ -21,17 +19,12 @@ public class SahurPvpNetworkController : MonoBehaviour
     {
         localFighter = local;
         remoteFighter = remote;
-        isHost = Application.isEditor;
         EnsureNetworkManager();
+        isHost = NetworkManager.Singleton != null && NetworkManager.Singleton.IsHost;
         RegisterMessages();
 
         if (!NetworkManager.Singleton.IsListening)
-        {
-            if (isHost)
-                NetworkManager.Singleton.StartHost();
-            else
-                NetworkManager.Singleton.StartClient();
-        }
+            NetworkManager.Singleton.StartClient();
     }
 
     private void Update()
@@ -48,21 +41,7 @@ public class SahurPvpNetworkController : MonoBehaviour
 
     private static void EnsureNetworkManager()
     {
-        if (NetworkManager.Singleton != null)
-            return;
-
-        GameObject managerObject = new GameObject("Local PVP Network Manager");
-        DontDestroyOnLoad(managerObject);
-
-        UnityTransport transport = managerObject.AddComponent<UnityTransport>();
-        transport.SetConnectionData("127.0.0.1", Port, "0.0.0.0");
-
-        NetworkManager manager = managerObject.AddComponent<NetworkManager>();
-        manager.NetworkConfig = new NetworkConfig
-        {
-            NetworkTransport = transport,
-            EnableSceneManagement = false
-        };
+        BrainrotNetworkConfig.EnsureNetworkManager(false);
     }
 
     private void RegisterMessages()
